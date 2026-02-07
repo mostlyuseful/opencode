@@ -1,3 +1,19 @@
+This fork fixes a race condition that prevents `opencode --run` from working on the latest official version. It builds on top of https://github.com/altendky/opencode/tree/fix/tui-prompt-model-race and is rebased on the latest `dev` branch.
+
+How to build and run:
+
+```shell
+# If you use mise:
+mise use "bun@1.3.9"
+# Build the project
+bun install && ./packages/opencode/script/build.ts
+# Run the TUI, adapt for your platform
+./packages/opencode/dist/opencode-linux-x64/bin/opencode
+```
+
+
+**Original README:**
+
 <p align="center">
   <a href="https://opencode.ai">
     <picture>

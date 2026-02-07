@@ -545,16 +545,33 @@ export function Prompt(props: PromptProps) {
     if (props.disabled) return
     if (autocomplete?.visible) return
     if (!store.prompt.input) return
+
     const trimmed = store.prompt.input.trim()
     if (trimmed === "exit" || trimmed === "quit" || trimmed === ":q") {
       exit()
       return
     }
+
     const selectedModel = local.model.current()
     if (!selectedModel) {
       promptModelWarning()
       return
     }
+
+    // Capture state immediately before clearing and before any async calls
+    let inputText = store.prompt.input
+    const promptParts = [...store.prompt.parts]
+    const extmarkToPartIndex = new Map(store.extmarkToPartIndex)
+    const currentMode = store.mode
+    const variant = local.model.variant.current()
+    const allExtmarks = input.extmarks.getAllForTypeId(promptPartTypeId)
+
+    // Clear state immediately to prevent race conditions during async session creation
+    input.clear()
+    input.extmarks.clear()
+    setStore("prompt", { input: "", parts: [] })
+    setStore("extmarkToPartIndex", new Map())
+    if (store.mode !== "normal") setStore("mode", "normal")
 
     let sessionID = props.sessionID
     if (sessionID == null) {
@@ -564,12 +581,10 @@ export function Prompt(props: PromptProps) {
 
       if (res.error) {
         console.log("Creating a session failed:", res.error)
-
         toast.show({
           message: "Creating a session failed. Open console for more details.",
           variant: "error",
         })
-
         return
       }
 
@@ -577,16 +592,14 @@ export function Prompt(props: PromptProps) {
     }
 
     const messageID = MessageID.ascending()
-    let inputText = store.prompt.input
 
     // Expand pasted text inline before submitting
-    const allExtmarks = input.extmarks.getAllForTypeId(promptPartTypeId)
     const sortedExtmarks = allExtmarks.sort((a: { start: number }, b: { start: number }) => b.start - a.start)
 
     for (const extmark of sortedExtmarks) {
-      const partIndex = store.extmarkToPartIndex.get(extmark.id)
+      const partIndex = extmarkToPartIndex.get(extmark.id)
       if (partIndex !== undefined) {
-        const part = store.prompt.parts[partIndex]
+        const part = promptParts[partIndex]
         if (part?.type === "text" && part.text) {
           const before = inputText.slice(0, extmark.start)
           const after = inputText.slice(extmark.end)
@@ -596,13 +609,9 @@ export function Prompt(props: PromptProps) {
     }
 
     // Filter out text parts (pasted content) since they're now expanded inline
-    const nonTextParts = store.prompt.parts.filter((part) => part.type !== "text")
+    const nonTextParts = promptParts.filter((part) => part.type !== "text")
 
-    // Capture mode before it gets reset
-    const currentMode = store.mode
-    const variant = local.model.variant.current()
-
-    if (store.mode === "shell") {
+    if (currentMode === "shell") {
       sdk.client.session.shell({
         sessionID,
         agent: local.agent.current().name,
@@ -612,7 +621,6 @@ export function Prompt(props: PromptProps) {
         },
         command: inputText,
       })
-      setStore("mode", "normal")
     } else if (
       inputText.startsWith("/") &&
       iife(() => {
@@ -663,19 +671,16 @@ export function Prompt(props: PromptProps) {
         })
         .catch(() => {})
     }
+
     history.append({
-      ...store.prompt,
+      input: inputText,
+      parts: promptParts,
       mode: currentMode,
     })
-    input.extmarks.clear()
-    setStore("prompt", {
-      input: "",
-      parts: [],
-    })
-    setStore("extmarkToPartIndex", new Map())
+
     props.onSubmit?.()
 
-    // temporary hack to make sure the message is sent
+    // temporary hack to make sure the navigation happens after the message is sent
     if (!props.sessionID)
       setTimeout(() => {
         route.navigate({
@@ -683,7 +688,6 @@ export function Prompt(props: PromptProps) {
           sessionID,
         })
       }, 50)
-    input.clear()
   }
   const exit = useExit()
 
